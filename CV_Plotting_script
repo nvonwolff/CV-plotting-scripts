@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Oct  8 13:33:51 2021
+
+@author: niklasvonwolff
+"""
+
+from matplotlib import pyplot as plt
+import numpy as np
+import pandas as pd
+import matplotlib.cm as cm
+from scipy import stats
+from sklearn import linear_model
+from sklearn.metrics import mean_squared_error, r2_score
+
+#Read file into dataframes
+df1 = pd.read_excel('NAME_OF_CV_FILE_1.xlsx')
+df2 = pd.read_excel('NAME_OF_CV_FILE_2.xlsx')
+df3 = pd.read_excel('NAME_OF_CV_FILE_3.xlsx')
+
+#add more lines of the same style: dfX = pd.read_excel('NAME_OF_CV_FILE_X.xlsx')
+
+
+ref = pd.read_excel('NAME_OF_CV_FILE_WITH_REFERENCE_CV.xlsx') #Enter name of the file used for referencing the CV, e.g. a file of a CV of pure Ferrocene
+
+#ndf = pd.read_excel('NVW-75-CV8-200mMEtOH-5mMNaOEt.xlsx') #Enter name of the file that you want to treat differently from the rest
+
+all_data = [df1,df2,df3] #make a list of all data that you want to plot: here we want to plat CVs1-3. Add dfX etc if you want to add more CVs. NO AUTOMOATIC LOADING OF ALL DATA YET
+
+scan_rates = (0.05, 0.1, 0.2, 0.3, 0.4, 0.5) #NO AUTOMATIC LOADING OF SCAN RATES YET, hence used scan rate need to be added manually at the moment (for Randles-Sevcik equation)
+
+def data(data_frame_list): #This make a function that returns the collection of all x and y values loaded (i.e. of all potentials and currents)
+
+    x_values =[] # create a list that will store the x values of each CV (potentials)
+    
+    for df in all_data: # loop throuhg all CVs and save the x column (potential) into the list
+        x = df['Potential applied (V)'].tolist() # get the potentials from the data-dataframe (the excel file) and store it as a list in x, the name in brackets has to be adapted to the column name of the initial excel file: here it is the name generated from NOVA 2
+        x_values.append(x) #add this list to the list that stores all CVs x-values
+    
+    y_values =[] #repeat as above for currents (= y)
+    for df in all_data:
+        y = df['WE(1).Current (A)'].tolist() #Again, the green part in brackets is the column name of the current in the initial excel file (here generated from NOVA 2)
+        y_values.append(y)
+        
+    ys = np.array(y_values)  #turn list of list into numpy array to do math operations on it later
+    xs = np.array(x_values)
+    
+    return xs,ys #return the collected data of potentials (xs) and current (ys)
+    
+
+def CV_plots(data_frame_list): #Create function to plot all data from all_data
+    
+    xs,ys = data(data_frame_list) #Get the data that we previously stored using the data function
+    
+    colors = cm.Greens(np.linspace(0.25, 1, len(data_frame_list))) #Creat a colorrange for the CVs to plot, e.g. using the Greens color panel
+    
+    font = {'fontname':'Arno ProS'} #Define a font for the plots
+    
+    plt.figure(figsize=(4, 3), dpi=360) #Set the size and definition of the figure to plot
+    
+    plt.xlabel(r'E (V $\it{vs}$ Fc$^{0/+}$)', **font) #Set the labels of the X and Y axis. The Y axis has italic and greek formatting
+    plt.ylabel('$\it{i}$('r'$\mu$''A)',**font)
+    
+    
+    for i in range(0,len(data_frame_list)): #Loop through the different data sets stored in alll_data
+        
+        color = colors[i] #assign a specific color from the color palette to be used for each CV
+        
+        x = xs[i] #select the i-th x and y-values from the xs, ys 
+        y = ys[i]
+        
+        plt.plot(x+ref_correction,y*1000*1000,color = color) #make scatter plot in muA
+        #plt.scatter(x,y*1000*1000,color = color,s=0.2) 
+      
+    plt.tight_layout() 
+    plt.savefig('Figure XXX.png') # saves the plot as Figure XXX.png in the same folder
+ 
+
+# IF YOU WANt TO PLOT JUST A SINGLE CV WIth A SPECIFIC REFERENCE AND GET PEAK DATA !!!NO BASELINE CORRECTION YET!!!
+def CV_single(df):
+    x = df['Potential applied (V)'].tolist() # get the potentials from the data-dataframe and store it as a list in x
+    y = df['WE(1).Current (A)'].tolist()
+    
+    potential = np.array(x)
+    current = np.array(y)
+    
+    idx_maxcurrent = np.argmax(current) #Look for the index of the max current
+    idx_mincurrent = np.argmin(current) #Look for the index of the min current 
+
+    Epa_peak = potential[idx_maxcurrent]    
+    Epc_peak = potential[idx_mincurrent]    
+    
+    Epa_corr = Epa_peak-ref_correction
+    Epc_corr = Epc_peak-ref_correction
+    
+    E_half = (Epa_peak+Epc_peak)/2
+    E_half_corr = (Epa_corr+Epc_corr)/2
+    
+    return E_half, E_half_corr  
+ 
+def CV_Ref(ref_df):
+    x = ref_df['Potential applied (V)'].tolist() # get the potentials from the data-dataframe and store it as a list in x
+    y = ref_df['WE(1).Current (A)'].tolist()
+    
+    potential = np.array(x)
+    current = np.array(y)
+    
+    idx_maxcurrent = np.argmax(current) #Look for the index of the max current
+    idx_mincurrent = np.argmin(current) #Look for the index of the min current 
+
+    Epa_peak = potential[idx_maxcurrent]    
+    Epc_peak = potential[idx_mincurrent]    
+    
+    E_half_ref = (Epa_peak+Epc_peak)/2
+    
+    return E_half_ref
+
+def Peak_plot(data_frame_list, scan_rates): # if you want to plot specific data points, e.g. a Randles-Sevcik kinda plot
+    
+    sqrt_scanrates = np.sqrt(scan_rates) # calculates the square roots of the scan rates, that we need for the Randle-Sevcik plot
+    
+    max_current_list = [] #Makes a list, that will store the peak currents from each CV
+    
+    count = 0
+    for df in all_data: # loop throuhg all CVs and save the x column (potential) into the list
+        x = df['Potential applied (V)'].tolist() # get the potentials from the data-dataframe and store it as a list in x
+        y = df['WE(1).Current (A)'].tolist()
+        potential = np.array(x) # generates a numpy array of the potential data, so that we can do some better math on it
+        xs_corrected = potential+ref_correction # corrects the measured potentials with an external reference (measured or manually chosen)
+        current =np.array(y) #does the same as above but for currents
+        idx_maxcurrent = np.argmax(current) #finds the index of the peak current from the current list
+        max_current = current[idx_maxcurrent]*1000*1000 # in muA, with the above index, we can peak now the value of the peak current
+        max_current_list.append(max_current) #and save the peak current from each CV into a collection/List
+        
+        #plt.scatter(sqrt_scanrate,max_current,color = color, s=0.2)
+        count += 1 
+          
+    xs = np.array(sqrt_scanrates, dtype=np.float64) #save the sqrt scanrates as an np array (x variable)
+    ys =np.array(max_current_list, dtype=np.float64) #save the max currents as an np array (y variable)
+    
+    reg = linear_model.LinearRegression() #creates instance of linear model
+    
+    reg.fit(xs.reshape(-1, 1),ys) #"training the model" =fitting straight line
+    
+    reg_line = reg.predict(xs.reshape(-1, 1)) #"create the regression line
+    y_intercept = reg.intercept_
+    slope = float(reg.coef_)
+    r2 = r2_score(ys, reg_line)
+    
+    fig2, ax2 = plt.subplots()
+    plt.figure(figsize=(5,3), dpi=360) #create a figure with given dimensions and labels
+    ax2.set_xlabel(r'$\sqrt{v}$')
+    ax2.set_ylabel('Peak current ('r'$\mu$''A)',labelpad=10)  
+    ax2.scatter(xs,ys)
+    ax2.plot(xs,reg_line, label=f' {slope:2.6}x + {y_intercept:4.4f} R\N{SUPERSCRIPT TWO}: {r2:2.4f}', alpha = 0.5, color = 'k') #Plots the data with formatted labels, that directly shows the slope and r2 values etc
+    ax2.legend(frameon=False)
+    plt.tight_layout() 
+    fig2.savefig('New linear regression3.png') #Saves the linear regression plot under the given name
+    return sqrt_scanrates,max_current_list
+
+#RANDLES STILL UNDER CONSTRUCTION !!! If we want to calculate the number of electrons e.g.
+# def Randles():
+    
+    
+#     R = np.array(8.31446261815324) # J/(K*mol)
+#     T = np.array(298.15) #K
+#     A = np.array(7.07) #cm2
+#     C = np.array(0.000001) #mol/cm3
+#     D = np.array(0.00000854) #cm2/s
+#     F = np.array(96485.33) #C/mol
+#     a = np.array(0.4463)
+#     sqrtv,ip = Peak_plot(all_data, scan_rates) 
+#     v = np.array(sqrtv)*np.array(sqrtv)
+#     R = np.array(R)
+    
+#     all_ns = []
+    
+#     F3 = F*F*F
+#     A2 = A*A
+#     C2 = C*C
+#     a2 = a*a
+    
+#     for i in range(0,len(ip)):
+#         ip2 = ip[i]*ip[i]
+        
+#         n3 = (ip2*R*T*a2)/(F3*A2*C2*D*v[i])
+        
+#         all_ns.append(n3)
+        
+#     return all_ns    
+
+
+ref_correction = -0.45 #Set manually if not use CV_Ref(ref) 
+#print('this is the Fc potential vs measure Ref electrode: ',ref_correction)
+
+CV_plots(all_data)
+
+E_half,E_half_corr = CV_single(df2)
+
+Peak_plot(all_data, scan_rates)
+  
+
+
+
+
+
+
+
+
+
+
